@@ -1267,34 +1267,40 @@ function! LanguageClient#get_complete_start(input) abort
     return match(a:input, '\k*$')
 endfunction
 
-function! LanguageClient_filterCompletionItems(item, base) abort
-    return a:item.word =~# '^' . a:base
-endfunction
+"function! LanguageClient_filterCompletionItems(item, base) abort
+"  return a:item.word =~# '^' . a:base
+"endfunction
 
 let g:LanguageClient_completeResults = []
 function! LanguageClient#complete(findstart, base) abort
     if a:findstart
         " Before requesting completion, content between l:start and current cursor is removed.
-        let s:completeText = LSP#text()
-
         let l:input = getline('.')[:LSP#character() - 1]
         let l:start = LanguageClient#get_complete_start(l:input)
+        let s:completeStart = l:start
         return l:start
     else
         " Magic happens that cursor jumps to the previously found l:start.
+        let l:position = {
+                    \   'line': LSP#line(),
+                    \   'character': s:completeStart,
+                    \ }
+
         let l:result = LanguageClient_runSync(
                     \ 'LanguageClient#omniComplete', {
                     \ 'character': LSP#character() + len(a:base),
                     \ 'complete_position': LSP#character(),
-                    \ 'text': s:completeText,
+                    \ 'base_position': l:position,
+                    \ 'fuzzy': a:base,
                     \ })
         let l:result = l:result is v:null ? [] : l:result
-        let l:filtered_items = []
-        for l:item in l:result
-            if LanguageClient_filterCompletionItems(l:item, a:base)
-                call add(l:filtered_items, l:item)
-            endif
-        endfor
+
+        if exists('*LanguageClient_filterCompletionItems')
+          let l:filtered_items = filter(l:result, 'LanguageClient_filterCompletionItems(v:val, a:base)')
+        else
+          let l:filtered_items = l:result
+        endif
+
         return filtered_items
     endif
 endfunction

@@ -13,7 +13,7 @@ fn is_content_modified_error(err: &anyhow::Error) -> bool {
 }
 
 impl LanguageClient {
-    pub fn handle_call(&self, msg: Call) -> Result<()> {
+    pub fn handle_call(&mut self, msg: Call) -> Result<()> {
         match msg {
             Call::MethodCall(lang_id, method_call) => {
                 let result = self.handle_method_call(lang_id.as_deref(), &method_call);
@@ -62,7 +62,7 @@ impl LanguageClient {
     }
 
     pub fn handle_method_call(
-        &self,
+        &mut self,
         language_id: Option<&str>,
         method_call: &jsonrpc_core::MethodCall,
     ) -> Result<Value> {
@@ -146,7 +146,7 @@ impl LanguageClient {
     }
 
     pub fn handle_notification(
-        &self,
+        &mut self,
         language_id: Option<&str>,
         notification: &jsonrpc_core::Notification,
     ) -> Result<()> {

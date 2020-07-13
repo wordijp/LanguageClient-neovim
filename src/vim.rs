@@ -95,6 +95,12 @@ impl Vim {
         self.rpcclient.call("getbufvar", json!([bufname, var]))
     }
 
+    pub fn get_fuzzy(&self, params: &Value) -> Result<String> {
+        let key = "fuzzy";
+
+        try_get(key, params)?.map_or_else(|| Ok("".to_owned()), Ok)
+    }
+
     pub fn get_filename(&self, params: &Value) -> Result<String> {
         let key = "filename";
         let expr = "LSP#filename()";
@@ -126,6 +132,13 @@ impl Vim {
     pub fn get_position(&self, params: &Value) -> Result<Position> {
         let key = "position";
         let expr = "LSP#position()";
+
+        try_get(key, params)?.map_or_else(|| self.eval(expr), Ok)
+    }
+
+    pub fn get_base_position(&self, params: &Value) -> Result<Position> {
+        let key = "base_position";
+        let expr = "LSP#base_position()";
 
         try_get(key, params)?.map_or_else(|| self.eval(expr), Ok)
     }

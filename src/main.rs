@@ -1,6 +1,7 @@
 mod extensions;
 mod language_client;
 mod language_server_protocol;
+mod omnicomplete_cache;
 mod logger;
 mod rpcclient;
 mod rpchandler;
@@ -30,6 +31,7 @@ fn main() -> Result<()> {
         version,
         state_mutex: Arc::new(Mutex::new(State::new(tx)?)),
         clients_mutex: Arc::new(Mutex::new(HashMap::new())),
+        omni_complete_cache: Arc::new(Mutex::new(None)),
     };
 
     language_client.loop_call(&rx)

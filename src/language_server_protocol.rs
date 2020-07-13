@@ -10,6 +10,7 @@ use crate::{
         vim_cmd_args_to_value, Canonicalize, Combine, ToUrl,
     },
     viewport,
+    omnicomplete_cache::OmniCompleteCache,
 };
 use anyhow::{anyhow, Context, Error, Result};
 use itertools::Itertools;
@@ -56,7 +57,9 @@ use std::{
     sync::{mpsc, Arc, MutexGuard},
     thread,
     time::{Duration, Instant},
+    cmp,
 };
+use fuzzy_matcher::clangd::ClangdMatcher;
 
 impl LanguageClient {
     pub fn get_client(&self, language_id: &LanguageId) -> Result<Arc<RpcClient>> {
@@ -71,7 +74,7 @@ impl LanguageClient {
 
     pub fn loop_call(&self, rx: &crossbeam::channel::Receiver<Call>) -> Result<()> {
         for call in rx.iter() {
-            let language_client = self.clone();
+            let mut language_client = self.clone();
             thread::spawn(move || {
                 if let Err(err) = language_client.handle_call(call) {
                     error!("Error handling request:\n{:?}", err);
@@ -2889,21 +2892,53 @@ impl LanguageClient {
 
     pub fn omnicomplete(&self, params: &Value) -> Result<Value> {
         info!("Begin {}", REQUEST_OMNI_COMPLETE);
-        let result = self.text_document_completion(params)?;
-        let result: Option<CompletionResponse> = serde_json::from_value(result)?;
-        let result = result.unwrap_or_else(|| CompletionResponse::Array(vec![]));
-        let matches = match result {
-            CompletionResponse::Array(arr) => arr,
-            CompletionResponse::List(list) => list.items,
-        };
 
-        let complete_position: Option<u64> = try_get("complete_position", params)?;
+        let fuzzy = self.vim()?.get_fuzzy(params)?;
+        let base_position = self.vim()?.get_base_position(params)?;
 
-        let matches: Result<Vec<VimCompleteItem>> = matches
+        let cache = self.omni_complete_cache.clone();
+        let mut cache = cache.lock().unwrap();
+
+        if cache.is_none() || (*cache).as_ref().unwrap().position != base_position {
+            let result = self.text_document_completion(params)?;
+            let result: Option<CompletionResponse> = serde_json::from_value(result)?;
+            let result = result.unwrap_or_else(|| CompletionResponse::Array(vec![]));
+            let matches = match result {
+                CompletionResponse::Array(arr) => arr,
+                CompletionResponse::List(list) => list.items,
+            };
+            
+            let complete_position: Option<u64> = try_get("complete_position", params)?;
+            
+            let matches: Result<Vec<VimCompleteItem>> = matches
+                .iter()
+                .map(|item| VimCompleteItem::from_lsp(item, complete_position))
+                .collect();
+            let matches = matches?;
+
+            *cache = Some(OmniCompleteCache::new(base_position, matches, ClangdMatcher::default().smart_case()));
+        }
+        let cache = (*cache).as_mut().unwrap();
+
+        let mut matches = cache.fuzzy_matches(&fuzzy);
+
+        matches.sort_unstable_by(|a, b| {
+            let a_len = a.word.len();
+            let b_len = b.word.len();
+
+            if a_len > b_len {
+                cmp::Ordering::Greater
+            } else if a_len < b_len {
+                cmp::Ordering::Less
+            } else {
+                a.word.cmp(&b.word)
+            }
+        });
+
+        let matches: Vec<&VimCompleteItem> = matches
             .iter()
-            .map(|item| VimCompleteItem::from_lsp(item, complete_position))
+            .map(|x| &**x)
             .collect();
-        let matches = matches?;
         info!("End {}", REQUEST_OMNI_COMPLETE);
         Ok(serde_json::to_value(matches)?)
     }
@@ -2988,6 +3023,17 @@ impl LanguageClient {
 
     pub fn handle_text_changed(&self, params: &Value) -> Result<()> {
         info!("Begin {}", NOTIFICATION_HANDLE_TEXT_CHANGED);
+
+        // Clear omniComplete cache when textchanged
+        let cache = self.omni_complete_cache.clone();
+        let mut cache = cache.lock().unwrap();
+        if let Some(c) = (*cache).as_ref() {
+            let base_position = self.vim()?.get_base_position(params)?;
+            if c.position != base_position {
+                *cache = None;
+            }
+        }
+
         let filename = self.vim()?.get_filename(params)?;
         let language_id = self.vim()?.get_language_id(&filename, params)?;
         if !self.get(|state| state.server_commands.contains_key(&language_id))? {

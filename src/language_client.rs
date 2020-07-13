@@ -2,6 +2,7 @@ use crate::{
     types::{LanguageId, State},
     utils::diff_value,
     vim::Vim,
+    omnicomplete_cache::OmniCompleteCache,
 };
 use anyhow::{anyhow, Result};
 use log::*;
@@ -18,6 +19,7 @@ pub struct LanguageClient {
     pub version: String,
     pub state_mutex: Arc<Mutex<State>>,
     pub clients_mutex: Arc<Mutex<HashMap<LanguageId, Arc<Mutex<()>>>>>,
+    pub omni_complete_cache: Arc<Mutex<Option<OmniCompleteCache>>>,
 }
 
 impl LanguageClient {

@@ -95,3 +95,11 @@ function! s:get_visual_selection() abort
         \ }
       \ }
 endfunction
+
+function! LSP#base_position() abort
+  let l:input = getline('.')[:LSP#character() - 1]
+  return {
+    \ 'line': LSP#line(),
+    \ 'character': LanguageClient#get_complete_start(l:input),
+    \ }
+endfunction
